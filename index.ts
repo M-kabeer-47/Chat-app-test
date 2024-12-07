@@ -23,11 +23,14 @@ const redisPort = Number(process.env.REDIS_PORT) || 6379; // Default Redis port
 const redisPassword = process.env.REDIS_PASSWORD;
 
 const pubClient = createClient({
+  url: `redis://:${redisPassword}@${redisHost}:${redisPort}`,
   socket: {
-    host: redisHost,
-    port: redisPort,
-  },
-  password: redisPassword,
+    connectTimeout: 10000, // 10-second timeout
+    reconnectStrategy: (retries) => {
+      if (retries > 5) return new Error('Too many reconnection attempts');
+      return Math.min(retries * 50, 500);
+    }
+  }
 });
 
 const subClient = pubClient.duplicate();
