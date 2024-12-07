@@ -19,57 +19,100 @@ const io = new Server(httpServer, {
 });
 
 // Redis connection configuration
-const redisHost = process.env.REDIS_HOST; // e.g., "your-redis-host.amazonaws.com"
-const redisPort = Number(process.env.REDIS_PORT) || 6379; // Default Redis port
+
+
+const redisHost = process.env.REDIS_HOST;
+const redisPort = Number(process.env.REDIS_PORT) || 6379;
 const redisPassword = process.env.REDIS_PASSWORD;
 
+// Construct the full Redis URL
+const redisUrl = `redis://:${redisPassword}@${redisHost}:${redisPort}`;
+
 const pubClient = createClient({
-  url: `redis://:${redisPassword}@${redisHost}:${redisPort}`,
+  url: redisUrl,
   socket: {
-    connectTimeout: 10000, // 10-second timeout
+    connectTimeout: 20000, // Increased timeout to 20 seconds
     reconnectStrategy: (retries) => {
-      if (retries > 5) return new Error('Too many reconnection attempts');
-      return Math.min(retries * 50, 500);
+      console.log(`Redis connection attempt: ${retries}`);
+      if (retries > 5) {
+        console.error('Max reconnection attempts reached');
+        return new Error('Max reconnection attempts');
+      }
+      return Math.min(retries * 1000, 5000); // Exponential backoff
     }
   }
 });
 
-const subClient = pubClient.duplicate();
-
-// Connect and handle errors
-pubClient.connect().catch(err => {
-  console.error('Failed to connect to Redis (pubClient):', err.message);
+const subClient = createClient({
+  url: redisUrl,
+  socket: {
+    connectTimeout: 20000,
+    reconnectStrategy: (retries) => {
+      console.log(`Redis connection attempt: ${retries}`);
+      if (retries > 5) {
+        console.error('Max reconnection attempts reached');
+        return new Error('Max reconnection attempts');
+      }
+      return Math.min(retries * 1000, 5000);
+    }
+  }
 });
 
-subClient.connect().catch(err => {
-  console.error('Failed to connect to Redis (subClient):', err.message);
-});
-
-// Handle Redis client errors
+// Detailed error logging
 pubClient.on('error', (err) => {
-  console.error('Redis pubClient error:', err);
+  console.error('Redis PubClient Error:', {
+    message: err.message,
+    code: err.code,
+    name: err.name,
+    stack: err.stack
+  });
 });
 
 subClient.on('error', (err) => {
-  console.error('Redis subClient error:', err);
+  console.error('Redis SubClient Error:', {
+    message: err.message,
+    code: err.code,
+    name: err.name,
+    stack: err.stack
+  });
 });
 
-// Handle Redis client reconnection attempts
-pubClient.on('reconnecting', (attempt) => {
-  console.log(`Redis pubClient reconnecting, attempt #${attempt}`);
-});
+// Connection function with extensive logging
+async function connectRedisClients() {
+  try {
+    console.log('Attempting to connect to Redis...');
+    console.log('Redis Connection Details:', {
+      host: redisHost,
+      port: redisPort,
+      // Avoid logging password
+    });
 
-subClient.on('reconnecting', (attempt) => {
-  console.log(`Redis subClient reconnecting, attempt #${attempt}`);
-});
+    await pubClient.connect();
+    await subClient.connect();
 
-pubClient.on('end', () => {
-  console.warn('Redis pubClient connection closed.');
-});
+    console.log('Redis clients connected successfully');
 
-subClient.on('end', () => {
-  console.warn('Redis subClient connection closed.');
-});
+    // Verify connection with ping
+    const pubPing = await pubClient.ping();
+    const subPing = await subClient.ping();
+    console.log('PubClient PING:', pubPing);
+    console.log('SubClient PING:', subPing);
+  } catch (err) {
+    console.error('Comprehensive Redis Connection Error:', {
+      message: err.message,
+      name: err.name,
+      code: err.code,
+      stack: err.stack
+    });
+    
+    // Optional: Implement a more graceful error handling strategy
+    // You might want to retry, use a fallback, or gracefully degrade functionality
+    process.exit(1);
+  }
+}
+
+// Call connection function
+connectRedisClients();
 
 // Attach Redis adapter
 io.adapter(createAdapter(pubClient, subClient));
@@ -123,5 +166,5 @@ io.on('connect', (socket) => {
 const PORT = process.env.PORT || 8000;
 httpServer.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  console.log(`Redis host: ${redisHost}`);
+  
 });
