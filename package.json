@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "nodemon": "nodemon npx tsx index.ts"
+   "start": "npx tsx index.ts"
   },
   "author": "",
   "license": "ISC",
